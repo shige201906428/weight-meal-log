@@ -258,14 +258,15 @@ function scheduleSave(){
   setStatus('保存中…');
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
+    let ok = false;
     try {
       await idbSet('db', db.export());
-      setStatus('保存済み');
-      queueSync();
+      ok = true;
     } catch(e){
       console.error(e);
-      setStatus('保存に失敗（書き出しでバックアップしてください）');
+      setStatus('保存に失敗: ' + ((e && (e.name || e.message)) || '不明') + '（書き出しでバックアップしてください）');
     }
+    if (ok){ setStatus('保存済み'); queueSync(); }
   }, 300);
 }
 
@@ -631,7 +632,24 @@ async function ghPut(c, bytes, sha){
   return { ok: false, conflict: r.status === 409 || r.status === 422, message: await ghErr(r) };
 }
 
-let syncing = false;
+let syncing = false, syncPending = false, syncTimer = null;
+const AUTO_SYNC_DELAY = 5000;
+function queueSync(){
+  const c = ghCfg();
+  if (!c || !c.autoPush || !c.owner || !c.repo || !c.token) return;
+  clearTimeout(syncTimer);
+  setSyncMsg('数秒後に自動で同期します…');
+  syncTimer = setTimeout(() => { syncTimer = null; syncNow(); }, AUTO_SYNC_DELAY);
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden' && syncTimer){
+    clearTimeout(syncTimer); syncTimer = null; syncNow();
+  }
+});
+const isTyping = () => {
+  const a = document.activeElement;
+  return !!a && a.tagName === 'INPUT' && ['text','number','date'].includes(a.type) && !a.closest('details');
+};
 function setSyncMsg(t, isErr){
   const e = $('syncMsg');
   e.textContent = t;
@@ -662,7 +680,8 @@ function fillSyncForm(){
 async function syncNow(){
   const c = ghCfg();
   if (!c || !c.owner || !c.repo || !c.token){ setSyncMsg('ユーザー名・リポジトリ名・トークンを入力して「設定を保存」してください', true); return; }
-  if (syncing) return;
+  if (syncing){ syncPending = true; return; }
+  clearTimeout(syncTimer); syncTimer = null;
   syncing = true;
   $('syncTop').disabled = true; $('ghSync').disabled = true;
   setSyncMsg('同期中…'); setStatus('同期中…');
@@ -676,7 +695,7 @@ async function syncNow(){
       const res = await ghPut(c, db.export(), remote ? remote.sha : null);
       if (res.ok){
         await idbSet('db', db.export());
-        renderAll();
+        if (isTyping()){ renderStats(); renderChart(); renderHistory(); } else renderAll();
         setSyncMsg('同期しました（' + new Date().toLocaleString('ja-JP') + '）');
         setStatus('保存済み');
         return;
@@ -691,6 +710,7 @@ async function syncNow(){
   } finally {
     syncing = false;
     $('syncTop').disabled = false; $('ghSync').disabled = false;
+    if (syncPending){ syncPending = false; queueSync(); }
   }
 }
 $('ghSave').addEventListener('click', () => {
