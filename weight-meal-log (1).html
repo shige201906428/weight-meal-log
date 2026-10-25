@@ -1,0 +1,738 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>体重・食事ログ</title>
+<style>
+:root{
+  --bg:#f6f7f9;--card:#ffffff;--text:#1d2330;--muted:#6b7385;--line:#e3e6ec;
+  --accent:#2f7d5b;--accent-soft:#e3f2ea;--danger:#c0392b;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#14171c;--card:#1d2128;--text:#e8eaf0;--muted:#9aa3b5;--line:#2c313b;--accent:#5cc79a;--accent-soft:#1f3329;--danger:#ef7a6c}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif}
+.wrap{max-width:760px;margin:0 auto;padding:16px 16px 64px}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+h1{font-size:20px;margin:0}
+#status{font-size:12px;color:var(--muted)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+.card h2{font-size:15px;margin:0 0 12px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.stat{background:var(--bg);border-radius:10px;padding:10px;text-align:center}
+.stat .v{font-size:18px;font-weight:600}
+.stat .l{font-size:11px;color:var(--muted)}
+@media (max-width:520px){.stats{grid-template-columns:repeat(2,1fr)}}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+input,select,button{font:inherit;color:inherit}
+input[type=date],input[type=number],input[type=text],select{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+input[type=number]{width:110px}
+input.grow{flex:1;min-width:140px}
+button{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 12px;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.danger{color:var(--danger)}
+button:active{opacity:.7}
+.nav{display:flex;gap:6px;align-items:center;margin-bottom:12px}
+.nav input{flex:1}
+.slot{border-top:1px solid var(--line);padding-top:12px;margin-top:12px}
+.slot:first-of-type{border-top:0;padding-top:0;margin-top:0}
+.slot-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.slot-head b{font-size:14px}
+.photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.photo{position:relative;background:var(--bg);border-radius:10px;overflow:hidden;border:1px solid var(--line)}
+.photo img{width:100%;aspect-ratio:4/3;object-fit:cover;display:block;cursor:zoom-in}
+.photo input{width:100%;border:0;border-top:1px solid var(--line);border-radius:0;font-size:13px}
+.photo .del{position:absolute;top:4px;right:4px;padding:2px 8px;background:rgba(0,0,0,.55);color:#fff;border:0;border-radius:999px}
+.empty{color:var(--muted);font-size:13px}
+canvas{width:100%;height:220px;display:block}
+.hist{display:flex;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line);cursor:pointer}
+.hist:first-child{border-top:0}
+.hist .d{width:92px;font-size:13px}
+.hist .w{width:70px;font-weight:600}
+.hist .th{display:flex;gap:4px}
+.hist .th img{width:44px;height:44px;object-fit:cover;border-radius:6px}
+.hist.sel{background:var(--accent-soft);border-radius:8px}
+details summary{cursor:pointer;font-weight:600}
+dialog{border:0;border-radius:12px;padding:0;max-width:92vw;background:var(--card)}
+dialog img{display:block;max-width:92vw;max-height:86vh}
+dialog::backdrop{background:rgba(0,0,0,.7)}
+.note{font-size:12px;color:var(--muted);margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>体重・食事ログ</h1>
+    <span>
+      <button id="syncTop" hidden>⟳ 同期</button>
+      <span id="status">読み込み中…</span>
+    </span>
+  </header>
+
+  <div class="card"><div class="stats" id="stats"></div></div>
+
+  <div class="card">
+    <div class="nav">
+      <button id="prev" title="前の日">◀</button>
+      <input type="date" id="date">
+      <button id="next" title="次の日">▶</button>
+      <button id="today">今日</button>
+    </div>
+
+    <h2>体重</h2>
+    <div class="row">
+      <input type="number" id="kg" step="0.1" min="20" max="300" placeholder="kg">
+      <span>kg</span>
+      <input type="text" id="wnote" class="grow" placeholder="メモ（任意）">
+      <button class="primary" id="saveW">保存</button>
+      <button class="danger" id="delW">削除</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>食事の写真</h2>
+    <div id="slots"></div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between;margin-bottom:8px">
+      <h2 style="margin:0">体重の推移</h2>
+      <select id="range">
+        <option value="30">30日</option>
+        <option value="90">90日</option>
+        <option value="365">1年</option>
+        <option value="all">全期間</option>
+      </select>
+    </div>
+    <canvas id="chart"></canvas>
+  </div>
+
+  <div class="card">
+    <h2>最近の記録</h2>
+    <div id="history"></div>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary>設定・データ管理</summary>
+      <div class="row" style="margin-top:12px">
+        <label>身長 <input type="number" id="height" step="0.1" placeholder="cm"> cm</label>
+        <label>目標体重 <input type="number" id="goal" step="0.1" placeholder="kg"> kg</label>
+        <button id="saveSettings">保存</button>
+      </div>
+      <h2 style="margin:16px 0 8px">GitHubで複数端末と同期</h2>
+      <div class="row">
+        <input type="text" id="ghOwner" placeholder="GitHubユーザー名" autocomplete="off">
+        <input type="text" id="ghRepo" placeholder="データ用リポジトリ名（非公開）" autocomplete="off">
+      </div>
+      <div class="row" style="margin-top:8px">
+        <input type="text" id="ghPath" class="grow" placeholder="data/weight-meal-log.sqlite" autocomplete="off">
+      </div>
+      <div class="row" style="margin-top:8px">
+        <input type="password" id="ghToken" class="grow" placeholder="個人用アクセストークン（fine-grained）" autocomplete="off">
+      </div>
+      <div class="row" style="margin-top:8px">
+        <label><input type="checkbox" id="ghAuto"> 起動時に自動で同期する</label>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <label><input type="checkbox" id="ghAutoPush"> 記録の数秒後に自動で同期する</label>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button id="ghSave">設定を保存</button>
+        <button class="primary" id="ghSync">今すぐ同期</button>
+        <button class="danger" id="ghClear">設定を消す</button>
+      </div>
+      <p class="note" id="syncMsg">未設定</p>
+
+      <div class="row" style="margin-top:16px">
+        <button id="export">SQLiteファイルを書き出す</button>
+        <button id="importBtn">SQLiteファイルを読み込む</button>
+        <input type="file" id="importFile" accept=".sqlite,.db,.sqlite3" hidden>
+      </div>
+      <p class="note">データはこのブラウザ内のSQLiteデータベース（IndexedDBに保存）に記録されます。複数端末で使う場合は、上のGitHub同期を設定してください。同期は端末ごとの記録を統合します（同じ日の体重は新しく入力したほうが残り、削除も他の端末に反映されます）。「読み込む」は現在のデータを丸ごと置き換えます。写真は長辺900pxのJPEGに縮小して保存します。</p>
+    </details>
+  </div>
+</div>
+
+<input type="file" id="photoInput" accept="image/*" hidden>
+<dialog id="viewer"><img id="viewerImg" alt=""></dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+const SLOTS = ['朝食','昼食','夕食','間食'];
+const SQLJS_BASE = 'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/';
+
+let SQL, db;
+let saveTimer = null;
+let dayUrls = [], histUrls = [];
+let pendingSlot = null;
+
+/* ---------- 日付ユーティリティ ---------- */
+const pad = n => String(n).padStart(2,'0');
+const ymd = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const parse = s => { const [y,m,d] = s.split('-').map(Number); return new Date(y,m-1,d); };
+const addDays = (s,n) => { const d = parse(s); d.setDate(d.getDate()+n); return ymd(d); };
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const WD = ['日','月','火','水','木','金','土'];
+const fmtDate = s => { const d = parse(s); return `${d.getMonth()+1}/${d.getDate()}(${WD[d.getDay()]})`; };
+
+/* ---------- IndexedDB（DBファイルの永続化） ---------- */
+function idbOpen(){
+  return new Promise((res,rej) => {
+    const r = indexedDB.open('weight-meal-log',1);
+    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function idbGet(k){
+  const d = await idbOpen();
+  return new Promise((res,rej) => {
+    const t = d.transaction('kv').objectStore('kv').get(k);
+    t.onsuccess = () => res(t.result);
+    t.onerror = () => rej(t.error);
+  });
+}
+async function idbSet(k,v){
+  const d = await idbOpen();
+  return new Promise((res,rej) => {
+    const tx = d.transaction('kv','readwrite');
+    tx.objectStore('kv').put(v,k);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  });
+}
+
+/* ---------- SQLite ---------- */
+function q(sql, params = []){
+  const st = db.prepare(sql);
+  const out = [];
+  try {
+    st.bind(params);
+    while (st.step()) out.push(st.getAsObject());
+  } finally { st.free(); }
+  return out;
+}
+function run(sql, params = []){ db.run(sql, params); scheduleSave(); }
+
+function initSchema(){
+  db.run(`
+    CREATE TABLE IF NOT EXISTS weights(
+      date TEXT PRIMARY KEY,
+      kg REAL NOT NULL,
+      note TEXT DEFAULT '',
+      updated_at TEXT DEFAULT ''
+    );
+    CREATE TABLE IF NOT EXISTS meals(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      uid TEXT UNIQUE NOT NULL,
+      date TEXT NOT NULL,
+      slot TEXT NOT NULL,
+      memo TEXT DEFAULT '',
+      photo BLOB,
+      updated_at TEXT DEFAULT ''
+    );
+    CREATE TABLE IF NOT EXISTS tombstones(
+      uid TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_meals_date ON meals(date);
+    CREATE TABLE IF NOT EXISTS settings(
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
+  `);
+}
+const now = () => new Date().toISOString();
+const newUid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,10);
+const getSetting = k => { const r = q('SELECT value FROM settings WHERE key=?',[k]); return r.length ? r[0].value : ''; };
+const setSetting = (k,v) => run('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',[k,String(v)]);
+
+function setStatus(t){ $('status').textContent = t; }
+function scheduleSave(){
+  setStatus('保存中…');
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    try {
+      await idbSet('db', db.export());
+      setStatus('保存済み');
+      queueSync();
+    } catch(e){
+      console.error(e);
+      setStatus('保存に失敗（書き出しでバックアップしてください）');
+    }
+  }, 300);
+}
+
+/* ---------- 画像 ---------- */
+async function loadBitmap(file){
+  try { return await createImageBitmap(file,{imageOrientation:'from-image'}); }
+  catch(_){
+    return new Promise((res,rej) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => { URL.revokeObjectURL(url); res(img); };
+      img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('画像を読み込めません')); };
+      img.src = url;
+    });
+  }
+}
+async function resizeToJpeg(file, max = 900, quality = 0.8){
+  const bmp = await loadBitmap(file);
+  const w0 = bmp.width, h0 = bmp.height;
+  const scale = Math.min(1, max / Math.max(w0,h0));
+  const w = Math.round(w0*scale), h = Math.round(h0*scale);
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  cv.getContext('2d').drawImage(bmp,0,0,w,h);
+  const blob = await new Promise(r => cv.toBlob(r,'image/jpeg',quality));
+  return new Uint8Array(await blob.arrayBuffer());
+}
+function blobUrl(u8, bucket){
+  const u = URL.createObjectURL(new Blob([u8],{type:'image/jpeg'}));
+  bucket.push(u);
+  return u;
+}
+
+/* ---------- 画面状態 ---------- */
+let curDate = ymd(new Date());
+
+/* ---------- 描画: 統計 ---------- */
+function renderStats(){
+  const rows = q('SELECT date,kg FROM weights ORDER BY date');
+  const el = $('stats');
+  const goal = parseFloat(getSetting('goal'));
+  const height = parseFloat(getSetting('height'));
+  const cards = [];
+  if (!rows.length){
+    el.innerHTML = '<div class="empty" style="grid-column:1/-1;text-align:center">体重を記録すると、ここに統計が表示されます</div>';
+    return;
+  }
+  const last = rows[rows.length-1];
+  cards.push([`${last.kg.toFixed(1)} kg`,`最新（${fmtDate(last.date)}）`]);
+
+  const ref = addDays(last.date,-7);
+  let past = null;
+  for (const r of rows){ if (r.date <= ref) past = r; }
+  if (past){
+    const diff = last.kg - past.kg;
+    cards.push([`${diff>0?'+':''}${diff.toFixed(1)} kg`,'7日前との差']);
+  } else cards.push(['―','7日前との差']);
+
+  if (goal){
+    const diff = last.kg - goal;
+    cards.push([`${diff>0?'+':''}${diff.toFixed(1)} kg`,`目標 ${goal} kg まで`]);
+  } else cards.push(['―','目標未設定']);
+
+  if (height){
+    const m = height/100;
+    cards.push([(last.kg/(m*m)).toFixed(1),'BMI']);
+  } else cards.push(['―','BMI（身長未設定）']);
+
+  el.innerHTML = cards.map(([v,l]) => `<div class="stat"><div class="v">${esc(v)}</div><div class="l">${esc(l)}</div></div>`).join('');
+}
+
+/* ---------- 描画: 選択日 ---------- */
+function renderDay(){
+  $('date').value = curDate;
+  const w = q('SELECT kg,note FROM weights WHERE date=?',[curDate])[0];
+  $('kg').value = w ? w.kg : '';
+  $('wnote').value = w ? w.note : '';
+
+  dayUrls.forEach(URL.revokeObjectURL); dayUrls = [];
+  const meals = q('SELECT id,slot,memo,photo FROM meals WHERE date=? ORDER BY id',[curDate]);
+  $('slots').innerHTML = SLOTS.map(slot => {
+    const items = meals.filter(m => m.slot === slot);
+    const photos = items.map(m => {
+      const src = m.photo ? blobUrl(m.photo, dayUrls) : '';
+      return `<div class="photo">
+        ${src ? `<img src="${src}" alt="${esc(slot)}" data-view="${src}">` : ''}
+        <button class="del" data-del="${m.id}" title="削除">✕</button>
+        <input type="text" data-memo="${m.id}" value="${esc(m.memo)}" placeholder="メモ">
+      </div>`;
+    }).join('');
+    return `<div class="slot">
+      <div class="slot-head"><b>${slot}</b><button data-add="${slot}">＋ 写真を追加</button></div>
+      ${items.length ? `<div class="photos">${photos}</div>` : '<div class="empty">まだ記録がありません</div>'}
+    </div>`;
+  }).join('');
+}
+
+/* ---------- 描画: グラフ ---------- */
+function renderChart(){
+  const cv = $('chart');
+  const dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth, H = 220;
+  cv.width = W*dpr; cv.height = H*dpr;
+  const c = cv.getContext('2d');
+  c.setTransform(dpr,0,0,dpr,0,0);
+  c.clearRect(0,0,W,H);
+
+  const cs = getComputedStyle(document.documentElement);
+  const muted = cs.getPropertyValue('--muted').trim();
+  const accent = cs.getPropertyValue('--accent').trim();
+  const grid = cs.getPropertyValue('--line').trim();
+
+  let rows = q('SELECT date,kg FROM weights ORDER BY date');
+  const range = $('range').value;
+  if (range !== 'all'){
+    const from = addDays(ymd(new Date()), -Number(range));
+    rows = rows.filter(r => r.date >= from);
+  }
+  c.font = '11px sans-serif';
+  if (!rows.length){
+    c.fillStyle = muted; c.textAlign = 'center';
+    c.fillText('この期間のデータがありません', W/2, H/2);
+    return;
+  }
+  const goal = parseFloat(getSetting('goal')) || null;
+  const vals = rows.map(r => r.kg);
+  if (goal) vals.push(goal);
+  let min = Math.min(...vals), max = Math.max(...vals);
+  if (max - min < 1){ min -= .5; max += .5; }
+  const pad_ = (max-min)*.15; min -= pad_; max += pad_;
+
+  const L = 40, R = 12, T = 10, B = 24;
+  const pw = W-L-R, ph = H-T-B;
+  const t0 = parse(rows[0].date).getTime();
+  const t1 = parse(rows[rows.length-1].date).getTime();
+  const X = s => t1 === t0 ? L+pw/2 : L + (parse(s).getTime()-t0)/(t1-t0)*pw;
+  const Y = v => T + (max-v)/(max-min)*ph;
+
+  c.strokeStyle = grid; c.fillStyle = muted; c.lineWidth = 1;
+  c.textAlign = 'right';
+  for (let i=0;i<=4;i++){
+    const v = min + (max-min)*i/4, y = Y(v);
+    c.beginPath(); c.moveTo(L,y); c.lineTo(W-R,y); c.stroke();
+    c.fillText(v.toFixed(1), L-6, y+4);
+  }
+  c.textAlign = 'left';  c.fillText(fmtDate(rows[0].date), L, H-6);
+  c.textAlign = 'right'; c.fillText(fmtDate(rows[rows.length-1].date), W-R, H-6);
+
+  if (goal){
+    c.save();
+    c.setLineDash([5,4]); c.strokeStyle = muted;
+    c.beginPath(); c.moveTo(L,Y(goal)); c.lineTo(W-R,Y(goal)); c.stroke();
+    c.restore();
+    c.fillStyle = muted; c.textAlign = 'left';
+    c.fillText(`目標 ${goal}`, L+4, Y(goal)-4);
+  }
+
+  c.strokeStyle = accent; c.lineWidth = 2; c.lineJoin = 'round';
+  c.beginPath();
+  rows.forEach((r,i) => { const x = X(r.date), y = Y(r.kg); i ? c.lineTo(x,y) : c.moveTo(x,y); });
+  c.stroke();
+  c.fillStyle = accent;
+  rows.forEach(r => { c.beginPath(); c.arc(X(r.date),Y(r.kg),3,0,Math.PI*2); c.fill(); });
+}
+
+/* ---------- 描画: 履歴 ---------- */
+function renderHistory(){
+  histUrls.forEach(URL.revokeObjectURL); histUrls = [];
+  const days = q(`
+    SELECT d.date AS date, w.kg AS kg
+    FROM (SELECT date FROM weights UNION SELECT date FROM meals) d
+    LEFT JOIN weights w ON w.date = d.date
+    ORDER BY d.date DESC LIMIT 30`);
+  const el = $('history');
+  if (!days.length){ el.innerHTML = '<div class="empty">まだ記録がありません</div>'; return; }
+  el.innerHTML = days.map(d => {
+    const ph = q('SELECT photo FROM meals WHERE date=? AND photo IS NOT NULL ORDER BY id LIMIT 4',[d.date]);
+    const th = ph.map(p => `<img src="${blobUrl(p.photo, histUrls)}" alt="">`).join('');
+    return `<div class="hist ${d.date===curDate?'sel':''}" data-day="${d.date}">
+      <div class="d">${fmtDate(d.date)}</div>
+      <div class="w">${d.kg != null ? d.kg.toFixed(1)+' kg' : '―'}</div>
+      <div class="th">${th}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderAll(){ renderStats(); renderDay(); renderChart(); renderHistory(); }
+function setDate(s){ if (!s) return; curDate = s; renderDay(); renderHistory(); }
+
+/* ---------- イベント ---------- */
+$('date').addEventListener('change', e => setDate(e.target.value));
+$('prev').addEventListener('click', () => setDate(addDays(curDate,-1)));
+$('next').addEventListener('click', () => setDate(addDays(curDate,1)));
+$('today').addEventListener('click', () => setDate(ymd(new Date())));
+$('range').addEventListener('change', renderChart);
+window.addEventListener('resize', renderChart);
+
+$('saveW').addEventListener('click', () => {
+  const kg = parseFloat($('kg').value);
+  if (!isFinite(kg) || kg <= 0){ alert('体重を入力してください'); return; }
+  run('INSERT INTO weights(date,kg,note,updated_at) VALUES(?,?,?,?) ON CONFLICT(date) DO UPDATE SET kg=excluded.kg, note=excluded.note, updated_at=excluded.updated_at',
+      [curDate, kg, $('wnote').value.trim(), now()]);
+  renderStats(); renderChart(); renderHistory();
+});
+$('delW').addEventListener('click', () => {
+  if (!q('SELECT 1 FROM weights WHERE date=?',[curDate]).length) return;
+  if (!confirm('この日の体重記録を削除しますか？')) return;
+  run('DELETE FROM weights WHERE date=?',[curDate]);
+  run('INSERT OR REPLACE INTO tombstones(uid,kind,at) VALUES(?,?,?)',['w:'+curDate,'w',now()]);
+  renderStats(); renderDay(); renderChart(); renderHistory();
+});
+
+document.addEventListener('click', e => {
+  const add = e.target.closest('[data-add]');
+  if (add){ pendingSlot = add.dataset.add; $('photoInput').value = ''; $('photoInput').click(); return; }
+  const del = e.target.closest('[data-del]');
+  if (del){
+    if (!confirm('この写真を削除しますか？')) return;
+    const mid = Number(del.dataset.del);
+    const target = q('SELECT uid FROM meals WHERE id=?',[mid])[0];
+    run('DELETE FROM meals WHERE id=?',[mid]);
+    if (target) run('INSERT OR REPLACE INTO tombstones(uid,kind,at) VALUES(?,?,?)',[target.uid,'m',now()]);
+    renderDay(); renderHistory(); return;
+  }
+  const view = e.target.closest('[data-view]');
+  if (view){ $('viewerImg').src = view.dataset.view; $('viewer').showModal(); return; }
+  const day = e.target.closest('[data-day]');
+  if (day){ setDate(day.dataset.day); window.scrollTo({top:0,behavior:'smooth'}); }
+});
+$('viewer').addEventListener('click', () => $('viewer').close());
+
+document.addEventListener('change', e => {
+  const m = e.target.closest('[data-memo]');
+  if (m) run('UPDATE meals SET memo=?, updated_at=? WHERE id=?',[m.value.trim(), now(), Number(m.dataset.memo)]);
+});
+
+$('photoInput').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  if (!file || !pendingSlot) return;
+  try {
+    setStatus('写真を処理中…');
+    const bytes = await resizeToJpeg(file);
+    run('INSERT INTO meals(uid,date,slot,memo,photo,updated_at) VALUES(?,?,?,?,?,?)',[newUid(), curDate, pendingSlot, '', bytes, now()]);
+    renderDay(); renderHistory();
+  } catch(err){
+    console.error(err);
+    alert('写真を追加できませんでした: ' + err.message);
+    setStatus('エラー');
+  }
+});
+
+$('saveSettings').addEventListener('click', () => {
+  setSetting('height', $('height').value.trim());
+  setSetting('goal', $('goal').value.trim());
+  renderStats(); renderChart();
+});
+
+$('export').addEventListener('click', () => {
+  const data = db.export();
+  const blob = new Blob([data],{type:'application/x-sqlite3'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  const t = new Date();
+  a.download = `weight-meal-log-${t.getFullYear()}${pad(t.getMonth()+1)}${pad(t.getDate())}.sqlite`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+$('importBtn').addEventListener('click', () => $('importFile').click());
+$('importFile').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (!confirm('現在のデータを、読み込むファイルの内容で置き換えます。よろしいですか？')) return;
+  try {
+    const next = new SQL.Database(new Uint8Array(await file.arrayBuffer()));
+    const old = db;
+    db = next;
+    initSchema();
+    q('SELECT COUNT(*) AS n FROM weights');
+    q('SELECT COUNT(*) AS n FROM meals');
+    old.close();
+    scheduleSave();
+    $('height').value = getSetting('height');
+    $('goal').value = getSetting('goal');
+    renderAll();
+  } catch(err){
+    console.error(err);
+    alert('読み込めませんでした。SQLiteファイルか確認してください。');
+  }
+});
+
+/* ---------- 端末間マージ ---------- */
+/*MERGE_START*/
+function mergeFrom(other){
+  const all = (d, sql) => {
+    const st = d.prepare(sql), out = [];
+    try { while (st.step()) out.push(st.getAsObject()); } finally { st.free(); }
+    return out;
+  };
+  db.run('BEGIN');
+  try {
+    for (const t of all(other,'SELECT uid,kind,at FROM tombstones'))
+      db.run('INSERT INTO tombstones(uid,kind,at) VALUES(?,?,?) ON CONFLICT(uid) DO UPDATE SET at=excluded.at WHERE excluded.at>tombstones.at',
+        [t.uid,t.kind,t.at]);
+    for (const w of all(other,'SELECT date,kg,note,updated_at FROM weights'))
+      db.run('INSERT INTO weights(date,kg,note,updated_at) VALUES(?,?,?,?) ON CONFLICT(date) DO UPDATE SET kg=excluded.kg, note=excluded.note, updated_at=excluded.updated_at WHERE excluded.updated_at>weights.updated_at',
+        [w.date,w.kg,w.note,w.updated_at]);
+    for (const m of all(other,'SELECT uid,date,slot,memo,photo,updated_at FROM meals'))
+      db.run('INSERT INTO meals(uid,date,slot,memo,photo,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(uid) DO UPDATE SET memo=excluded.memo, updated_at=excluded.updated_at WHERE excluded.updated_at>meals.updated_at',
+        [m.uid,m.date,m.slot,m.memo,m.photo,m.updated_at]);
+    db.run("DELETE FROM meals WHERE uid IN (SELECT uid FROM tombstones WHERE kind='m')");
+    db.run("DELETE FROM weights WHERE EXISTS (SELECT 1 FROM tombstones t WHERE t.uid='w:'||weights.date AND t.at>=weights.updated_at)");
+    db.run('COMMIT');
+  } catch(e){
+    try { db.run('ROLLBACK'); } catch(_){}
+    throw e;
+  }
+}
+/*MERGE_END*/
+
+/* ---------- GitHub 同期 ---------- */
+const GH_KEY = 'wml-gh-sync';
+const ghCfg = () => { try { return JSON.parse(localStorage.getItem(GH_KEY) || 'null'); } catch(_){ return null; } };
+const ghStore = c => { try { localStorage.setItem(GH_KEY, JSON.stringify(c)); return true; } catch(_){ return false; } };
+const ghHeaders = (c, raw) => ({
+  'Authorization': 'Bearer ' + c.token,
+  'X-GitHub-Api-Version': '2022-11-28',
+  'Accept': raw ? 'application/vnd.github.raw+json' : 'application/vnd.github+json'
+});
+const ghUrl = c => 'https://api.github.com/repos/' + encodeURIComponent(c.owner) + '/' + encodeURIComponent(c.repo)
+  + '/contents/' + c.path.split('/').map(encodeURIComponent).join('/');
+async function ghErr(r){
+  let msg = '';
+  try { msg = (await r.json()).message || ''; } catch(_){}
+  if (r.status === 401) return 'トークンが無効です（401）';
+  if (r.status === 403) return '権限が足りないか、アクセス制限中です（403）' + (msg ? ': ' + msg : '');
+  if (r.status === 404) return 'リポジトリまたはファイルが見つかりません。名前とトークンの対象リポジトリを確認してください（404）';
+  return r.status + (msg ? ': ' + msg : '');
+}
+async function ghGet(c){
+  const r = await fetch(ghUrl(c), { headers: ghHeaders(c,false), cache: 'no-store' });
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error(await ghErr(r));
+  const meta = await r.json();
+  if (!meta.size) return { sha: meta.sha, bytes: null };
+  const r2 = await fetch(ghUrl(c), { headers: ghHeaders(c,true), cache: 'no-store' });
+  if (!r2.ok) throw new Error(await ghErr(r2));
+  return { sha: meta.sha, bytes: new Uint8Array(await r2.arrayBuffer()) };
+}
+function toB64(u8){
+  let s = '';
+  for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+async function ghPut(c, bytes, sha){
+  const body = { message: 'sync ' + now(), content: toB64(bytes) };
+  if (sha) body.sha = sha;
+  const r = await fetch(ghUrl(c), {
+    method: 'PUT',
+    headers: Object.assign({ 'Content-Type': 'application/json' }, ghHeaders(c,false)),
+    body: JSON.stringify(body)
+  });
+  if (r.ok) return { ok: true };
+  return { ok: false, conflict: r.status === 409 || r.status === 422, message: await ghErr(r) };
+}
+
+let syncing = false;
+function setSyncMsg(t, isErr){
+  const e = $('syncMsg');
+  e.textContent = t;
+  e.style.color = isErr ? 'var(--danger)' : 'var(--muted)';
+}
+function readSyncForm(){
+  return {
+    owner: $('ghOwner').value.trim(),
+    repo: $('ghRepo').value.trim(),
+    path: ($('ghPath').value.trim() || 'data/weight-meal-log.sqlite').replace(/^\/+/, ''),
+    token: $('ghToken').value.trim(),
+    auto: $('ghAuto').checked,
+    autoPush: $('ghAutoPush').checked
+  };
+}
+function fillSyncForm(){
+  const c = ghCfg();
+  if (!c) return;
+  $('ghOwner').value = c.owner || '';
+  $('ghRepo').value = c.repo || '';
+  $('ghPath').value = c.path || '';
+  $('ghToken').value = c.token || '';
+  $('ghAuto').checked = !!c.auto;
+  $('ghAutoPush').checked = !!c.autoPush;
+  $('syncTop').hidden = false;
+  setSyncMsg('設定済み');
+}
+async function syncNow(){
+  const c = ghCfg();
+  if (!c || !c.owner || !c.repo || !c.token){ setSyncMsg('ユーザー名・リポジトリ名・トークンを入力して「設定を保存」してください', true); return; }
+  if (syncing) return;
+  syncing = true;
+  $('syncTop').disabled = true; $('ghSync').disabled = true;
+  setSyncMsg('同期中…'); setStatus('同期中…');
+  try {
+    for (let attempt = 0; attempt < 3; attempt++){
+      const remote = await ghGet(c);
+      if (remote && remote.bytes){
+        const other = new SQL.Database(remote.bytes);
+        try { mergeFrom(other); } finally { other.close(); }
+      }
+      const res = await ghPut(c, db.export(), remote ? remote.sha : null);
+      if (res.ok){
+        await idbSet('db', db.export());
+        renderAll();
+        setSyncMsg('同期しました（' + new Date().toLocaleString('ja-JP') + '）');
+        setStatus('保存済み');
+        return;
+      }
+      if (!res.conflict) throw new Error(res.message);
+    }
+    throw new Error('他の端末の更新と重なりました。もう一度お試しください');
+  } catch(err){
+    console.error(err);
+    setSyncMsg('同期に失敗しました: ' + err.message, true);
+    setStatus('同期に失敗');
+  } finally {
+    syncing = false;
+    $('syncTop').disabled = false; $('ghSync').disabled = false;
+  }
+}
+$('ghSave').addEventListener('click', () => {
+  const c = readSyncForm();
+  if (!c.owner || !c.repo || !c.token){ setSyncMsg('ユーザー名・リポジトリ名・トークンは必須です', true); return; }
+  if (!ghStore(c)){ setSyncMsg('このブラウザでは設定を保存できません', true); return; }
+  $('syncTop').hidden = false;
+  setSyncMsg('設定を保存しました。「今すぐ同期」を押してください');
+});
+$('ghSync').addEventListener('click', () => { const c = readSyncForm(); if (c.owner && c.repo && c.token) ghStore(c); syncNow(); });
+$('syncTop').addEventListener('click', syncNow);
+$('ghClear').addEventListener('click', () => {
+  if (!confirm('このブラウザに保存した同期設定（トークン含む）を消します。GitHub上のデータは消えません。')) return;
+  try { localStorage.removeItem(GH_KEY); } catch(_){}
+  ['ghOwner','ghRepo','ghPath','ghToken'].forEach(id => $(id).value = '');
+  $('ghAuto').checked = false; $('ghAutoPush').checked = false; $('syncTop').hidden = true;
+  setSyncMsg('未設定');
+});
+
+/* ---------- 起動 ---------- */
+(async () => {
+  try {
+    SQL = await initSqlJs({ locateFile: f => SQLJS_BASE + f });
+  } catch(err){
+    console.error(err);
+    setStatus('SQLiteの読み込みに失敗しました（ネット接続を確認してください）');
+    return;
+  }
+  let saved = null;
+  try { saved = await idbGet('db'); } catch(_){}
+  db = saved ? new SQL.Database(saved) : new SQL.Database();
+  initSchema();
+  $('height').value = getSetting('height');
+  $('goal').value = getSetting('goal');
+  renderAll();
+  setStatus(saved ? '保存済み' : '新しいデータベースを作成しました');
+  if (!saved) scheduleSave();
+  fillSyncForm();
+  const gc = ghCfg();
+  if (gc && gc.auto) syncNow();
+})();
+})();
+</script>
+</body>
+</html>
